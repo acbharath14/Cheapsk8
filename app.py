@@ -15,12 +15,20 @@ from typing import Literal
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 app = FastAPI(
     title="Cheapsk8",
     description="Find free stuff online — samples, trials, giveaways, events.",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
