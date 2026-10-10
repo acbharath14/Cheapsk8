@@ -3,7 +3,20 @@
 A freebie-finder API + GPT. Scours the internet for free samples, trials,
 giveaways, events, birthday perks, and digital goods.
 
-## Quickstart
+## Web UI
+
+A React + shadcn-style interface lives in `web/`. To run it locally:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+It talks to the API at `https://cheapsk8-production.up.railway.app` by default
+(override with `VITE_API_URL`).
+
+## API Quickstart
 
 ```bash
 pip install -r requirements.txt
@@ -27,7 +40,7 @@ curl "http://localhost:8000/categories"
 ## GPT Setup (GPT Store)
 
 1. Deploy this API somewhere public (Railway, Fly.io, Render).
-2. In ChatGPT, create a new GPT.
+2. In ChatGPT, create a new GPT (requires ChatGPT Plus).
 3. Paste `gpt_instructions.md` as the instructions.
 4. Add an Action: import from URL → `https://your-host/openapi.json`
    (FastAPI auto-generates this at `/openapi.json`).
