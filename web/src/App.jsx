@@ -8,6 +8,24 @@ import { fetchFreebies, fetchCategories, sendNotification, subscribeDigest, crea
 import { cn } from "./lib/utils";
 import LocationAutocomplete from "./components/LocationAutocomplete";
 
+/** Safe localStorage wrappers — never throw (private mode, quota, etc). */
+const storage = {
+  get(key, fallback = "") {
+    try { return localStorage.getItem(key) ?? fallback; }
+    catch { return fallback; }
+  },
+  getJSON(key, fallback = []) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); }
+    catch { /* storage unavailable — non-fatal */ }
+  },
+};
+
 const CATEGORY_META = {
   samples:   { icon: "🎁", label: "Samples",   blurb: "Try before you buy" },
   trials:    { icon: "⏱️", label: "Trials",    blurb: "Free for a limited time" },
@@ -88,7 +106,7 @@ function FreebieCard({ freebie, index, selected, onToggle, saved, onSave, onOpen
 }
 
 function DigestForm() {
-  const [email, setEmail] = useState(() => localStorage.getItem("cheapsk8-email") || "");
+  const [email, setEmail] = useState(() => storage.get("cheapsk8-email"));
   const [status, setStatus] = useState(""); // "", "sending", "done", "error"
 
   const submit = async (e) => {
@@ -97,7 +115,7 @@ function DigestForm() {
     setStatus("sending");
     try {
       await subscribeDigest(email);
-      localStorage.setItem("cheapsk8-email", email);
+      storage.set("cheapsk8-email", email);
       setStatus("done");
     } catch {
       setStatus("error");
@@ -225,13 +243,12 @@ export default function App() {
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
   const [selected, setSelected] = useState(new Set());
-  const [email, setEmail] = useState(() => localStorage.getItem("cheapsk8-email") || "");
+  const [email, setEmail] = useState(() => storage.get("cheapsk8-email"));
   const [notifyStatus, setNotifyStatus] = useState("");
   const [showEmailBar, setShowEmailBar] = useState(false);
   const [tab, setTab] = useState("discover"); // "discover" | "saved"
   const [savedItems, setSavedItems] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("cheapsk8-saved") || "[]"); }
-    catch { return []; }
+    return storage.getJSON("cheapsk8-saved");
   });
   const [modalFreebie, setModalFreebie] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -254,10 +271,11 @@ export default function App() {
     setError("");
     try {
       const data = await fetchFreebies({ category: activeCategory, query, location });
-      setFreebies(data.freebies);
+      setFreebies(Array.isArray(data.freebies) ? data.freebies : []);
       setSearched(true);
     } catch (err) {
-      setError("Couldn't fetch freebies. Is the API running?");
+      setError(err.message || "Couldn't fetch freebies. Try again.");
+      setFreebies([]);
     } finally {
       setLoading(false);
     }
@@ -280,7 +298,7 @@ export default function App() {
   const handleNotify = async () => {
     if (!email || selected.size === 0) return;
     setNotifyStatus("sending");
-    localStorage.setItem("cheapsk8-email", email);
+    storage.set("cheapsk8-email", email);
     const picked = freebies.filter((f) => selected.has(f.url));
     try {
       await sendNotification(email, picked);
@@ -298,7 +316,7 @@ export default function App() {
       const next = exists
         ? prev.filter((f) => f.url !== freebie.url)
         : [...prev, freebie];
-      localStorage.setItem("cheapsk8-saved", JSON.stringify(next));
+      storage.set("cheapsk8-saved", JSON.stringify(next));
       return next;
     });
   };
@@ -316,7 +334,7 @@ export default function App() {
   const handleCreateAlert = async (e) => {
     e.preventDefault();
     if (!email || !alertKeyword.trim()) return;
-    localStorage.setItem("cheapsk8-email", email);
+    storage.set("cheapsk8-email", email);
     try {
       await createAlert(email, alertKeyword.trim());
       setAlertKeyword("");
