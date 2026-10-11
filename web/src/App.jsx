@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, ExternalLink, Gift, Loader2, Sparkles, ArrowRight, BadgeCheck } from "lucide-react";
+import { Search, MapPin, ExternalLink, Gift, Loader2, Sparkles, ArrowRight, BadgeCheck, Mail, Check } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
-import { fetchFreebies, fetchCategories } from "./lib/api";
+import { fetchFreebies, fetchCategories, sendNotification } from "./lib/api";
 import { cn } from "./lib/utils";
 
 const CATEGORY_META = {
@@ -17,20 +17,38 @@ const CATEGORY_META = {
   food:      { icon: "🍕", label: "Food",      blurb: "Free bites" },
 };
 
-function FreebieCard({ freebie, index }) {
+function FreebieCard({ freebie, index, selected, onToggle }) {
   const meta = CATEGORY_META[freebie.category] || { icon: "🆓", label: freebie.category };
   return (
     <Card
-      className="group flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-200 border-2 hover:border-primary/50"
+      className={cn(
+        "group flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-200 border-2",
+        selected ? "border-primary shadow-lg shadow-primary/20" : "hover:border-primary/50"
+      )}
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
       <div className="h-1.5 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
       <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">{meta.icon}</span>
-          <Badge variant="secondary" className="text-xs">
-            {meta.label}
-          </Badge>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">{meta.icon}</span>
+            <Badge variant="secondary" className="text-xs">
+              {meta.label}
+            </Badge>
+          </div>
+          <button
+            type="button"
+            onClick={() => onToggle(freebie)}
+            aria-label={selected ? "Deselect" : "Select for email"}
+            className={cn(
+              "h-6 w-6 rounded-md border-2 flex items-center justify-center transition-all shrink-0",
+              selected
+                ? "bg-primary border-primary text-primary-foreground"
+                : "border-muted-foreground/40 hover:border-primary"
+            )}
+          >
+            {selected && <Check className="h-4 w-4" />}
+          </button>
         </div>
         <CardTitle className="text-[15px] leading-snug pt-1 group-hover:text-primary transition-colors">
           {freebie.title}
@@ -62,6 +80,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [email, setEmail] = useState(() => localStorage.getItem("cheapsk8-email") || "");
+  const [notifyStatus, setNotifyStatus] = useState(""); // "", "sending", "sent", "error"
+  const [showEmailBar, setShowEmailBar] = useState(false);
 
   // Dark mode by default
   useEffect(() => {
@@ -91,6 +113,30 @@ export default function App() {
   const handleCategoryClick = (id) => {
     setCategory(id);
     search(null, id);
+  };
+
+  const toggleSelect = (freebie) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(freebie.url)) next.delete(freebie.url);
+      else next.add(freebie.url);
+      return next;
+    });
+  };
+
+  const handleNotify = async () => {
+    if (!email || selected.size === 0) return;
+    setNotifyStatus("sending");
+    localStorage.setItem("cheapsk8-email", email);
+    const picked = freebies.filter((f) => selected.has(f.url));
+    try {
+      await sendNotification(email, picked);
+      setNotifyStatus("sent");
+      setSelected(new Set());
+      setTimeout(() => { setNotifyStatus(""); setShowEmailBar(false); }, 4000);
+    } catch (err) {
+      setNotifyStatus("error");
+    }
   };
 
   useEffect(() => { search(); }, []);
@@ -207,10 +253,64 @@ export default function App() {
             )}
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {freebies.map((f, i) => (
-                <FreebieCard key={`${f.url}-${i}`} freebie={f} index={i} />
+                <FreebieCard
+                  key={`${f.url}-${i}`}
+                  freebie={f}
+                  index={i}
+                  selected={selected.has(f.url)}
+                  onToggle={toggleSelect}
+                />
               ))}
             </div>
           </>
+        )}
+
+        {/* Floating email bar */}
+        {selected.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-xl">
+            <Card className="border-primary/50 shadow-2xl">
+              <CardContent className="p-4">
+                {!showEmailBar ? (
+                  <Button onClick={() => setShowEmailBar(true)} className="w-full" size="lg">
+                    <Mail className="mr-2" />
+                    Email me these {selected.size} freebie{selected.size > 1 ? "s" : ""}
+                  </Button>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex gap-2">
+                      <Input
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button
+                        onClick={handleNotify}
+                        disabled={!email || notifyStatus === "sending"}
+                      >
+                        {notifyStatus === "sending" ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          "Send"
+                        )}
+                      </Button>
+                    </div>
+                    {notifyStatus === "sent" && (
+                      <p className="text-sm text-primary flex items-center gap-1">
+                        <BadgeCheck className="h-4 w-4" /> Sent! Check your inbox.
+                      </p>
+                    )}
+                    {notifyStatus === "error" && (
+                      <p className="text-sm text-destructive">
+                        Couldn't send. The server may not have email configured yet.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
       </main>
 
