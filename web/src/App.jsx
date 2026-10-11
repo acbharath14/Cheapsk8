@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, ExternalLink, Gift, Loader2, Sparkles, ArrowRight, BadgeCheck, Mail, Check } from "lucide-react";
+import { Search, MapPin, ExternalLink, Gift, Loader2, Sparkles, ArrowRight, BadgeCheck, Mail, Check, Bookmark, Bell, BellOff, X, ThumbsUp } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
-import { fetchFreebies, fetchCategories, sendNotification, subscribeDigest } from "./lib/api";
+import { fetchFreebies, fetchCategories, sendNotification, subscribeDigest, createAlert, listAlerts, deleteAlert } from "./lib/api";
 import { cn } from "./lib/utils";
 
 const CATEGORY_META = {
@@ -17,15 +17,16 @@ const CATEGORY_META = {
   food:      { icon: "🍕", label: "Food",      blurb: "Free bites" },
 };
 
-function FreebieCard({ freebie, index, selected, onToggle }) {
+function FreebieCard({ freebie, index, selected, onToggle, saved, onSave, onOpen }) {
   const meta = CATEGORY_META[freebie.category] || { icon: "🆓", label: freebie.category };
   return (
     <Card
       className={cn(
-        "group flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-200 border-2",
+        "group flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-200 border-2 cursor-pointer",
         selected ? "border-primary shadow-lg shadow-primary/20" : "hover:border-primary/50"
       )}
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
+      onClick={() => onOpen(freebie)}
     >
       <div className="h-1.5 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
       <CardHeader className="pb-2">
@@ -36,19 +37,32 @@ function FreebieCard({ freebie, index, selected, onToggle }) {
               {meta.label}
             </Badge>
           </div>
-          <button
-            type="button"
-            onClick={() => onToggle(freebie)}
-            aria-label={selected ? "Deselect" : "Select for email"}
-            className={cn(
-              "h-6 w-6 rounded-md border-2 flex items-center justify-center transition-all shrink-0",
-              selected
-                ? "bg-primary border-primary text-primary-foreground"
-                : "border-muted-foreground/40 hover:border-primary"
-            )}
-          >
-            {selected && <Check className="h-4 w-4" />}
-          </button>
+          <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => onSave(freebie)}
+              aria-label={saved ? "Unsave" : "Save"}
+              className={cn(
+                "h-6 w-6 rounded-md flex items-center justify-center transition-all",
+                saved ? "text-primary" : "text-muted-foreground/50 hover:text-primary"
+              )}
+            >
+              <Bookmark className={cn("h-4 w-4", saved && "fill-current")} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggle(freebie)}
+              aria-label={selected ? "Deselect" : "Select for email"}
+              className={cn(
+                "h-6 w-6 rounded-md border-2 flex items-center justify-center transition-all",
+                selected
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : "border-muted-foreground/40 hover:border-primary"
+              )}
+            >
+              {selected && <Check className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
         <CardTitle className="text-[15px] leading-snug pt-1 group-hover:text-primary transition-colors">
           {freebie.title}
@@ -113,6 +127,89 @@ function DigestForm() {
   );
 }
 
+function FreebieModal({ freebie, onClose, onClaim }) {
+  if (!freebie) return null;
+  const meta = CATEGORY_META[freebie.category] || { icon: "🆓", label: freebie.category };
+  const [worked, setWorked] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <Card
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="h-2 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
+        <CardHeader>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl">{meta.icon}</span>
+              <Badge variant="secondary">{meta.label}</Badge>
+            </div>
+            <button onClick={onClose} aria-label="Close"
+              className="text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <CardTitle className="text-xl leading-snug pt-2">{freebie.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {freebie.description && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{freebie.description}</p>
+          )}
+
+          <div className="rounded-lg bg-muted/50 p-4 space-y-2">
+            <p className="font-semibold text-sm flex items-center gap-2">
+              <BadgeCheck className="h-4 w-4 text-primary" /> How to claim
+            </p>
+            <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+              <li>Click "Claim it free" below to open the source page</li>
+              <li>Follow the instructions on their site (usually a form or signup)</li>
+              {freebie.how_to_claim && <li className="italic">{freebie.how_to_claim}</li>}
+              <li>No purchase necessary — if they ask for payment, it's not a real freebie</li>
+            </ol>
+          </div>
+
+          {freebie.url && (
+            <p className="text-xs text-muted-foreground break-all">
+              Source: <span className="underline">{new URL(freebie.url).hostname}</span>
+            </p>
+          )}
+
+          <button
+            onClick={() => setWorked(true)}
+            disabled={worked}
+            className={cn(
+              "flex items-center gap-2 text-sm rounded-lg px-3 py-2 border transition-all w-full justify-center",
+              worked
+                ? "bg-primary/10 border-primary/40 text-primary"
+                : "border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ThumbsUp className="h-4 w-4" />
+            {worked ? "Thanks for confirming! 🎉" : "This worked for me"}
+          </button>
+        </CardContent>
+        <CardFooter>
+          <Button className="w-full" size="lg" asChild>
+            <a href={freebie.url} target="_blank" rel="noopener noreferrer" onClick={() => onClaim?.(freebie)}>
+              Claim it free <ExternalLink className="ml-2" />
+            </a>
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
+  );
+}
+
 export default function App() {
   const [categories, setCategories] = useState([]);
   const [category, setCategory] = useState("samples");
@@ -124,8 +221,17 @@ export default function App() {
   const [searched, setSearched] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [email, setEmail] = useState(() => localStorage.getItem("cheapsk8-email") || "");
-  const [notifyStatus, setNotifyStatus] = useState(""); // "", "sending", "sent", "error"
+  const [notifyStatus, setNotifyStatus] = useState("");
   const [showEmailBar, setShowEmailBar] = useState(false);
+  const [tab, setTab] = useState("discover"); // "discover" | "saved"
+  const [savedItems, setSavedItems] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("cheapsk8-saved") || "[]"); }
+    catch { return []; }
+  });
+  const [modalFreebie, setModalFreebie] = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  const [alertKeyword, setAlertKeyword] = useState("");
+  const [showAlerts, setShowAlerts] = useState(false);
 
   // Dark mode by default
   useEffect(() => {
@@ -180,6 +286,47 @@ export default function App() {
       setNotifyStatus("error");
     }
   };
+
+  const toggleSave = (freebie) => {
+    setSavedItems((prev) => {
+      const exists = prev.some((f) => f.url === freebie.url);
+      const next = exists
+        ? prev.filter((f) => f.url !== freebie.url)
+        : [...prev, freebie];
+      localStorage.setItem("cheapsk8-saved", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const isSaved = (url) => savedItems.some((f) => f.url === url);
+
+  const loadAlerts = async () => {
+    if (!email) return;
+    try {
+      const d = await listAlerts(email);
+      setAlerts(d.alerts);
+    } catch { /* ignore */ }
+  };
+
+  const handleCreateAlert = async (e) => {
+    e.preventDefault();
+    if (!email || !alertKeyword.trim()) return;
+    localStorage.setItem("cheapsk8-email", email);
+    try {
+      await createAlert(email, alertKeyword.trim());
+      setAlertKeyword("");
+      loadAlerts();
+    } catch { /* ignore */ }
+  };
+
+  const handleDeleteAlert = async (keyword) => {
+    try {
+      await deleteAlert(email, keyword);
+      loadAlerts();
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { if (showAlerts) loadAlerts(); }, [showAlerts]);
 
   useEffect(() => { search(); }, []);
 
@@ -263,27 +410,123 @@ export default function App() {
 
       {/* Results */}
       <main className="max-w-6xl mx-auto px-4 pb-16">
-        {error && (
-          <Card className="border-destructive mb-8">
-            <CardContent className="pt-6 text-destructive text-sm">{error}</CardContent>
+        {/* Tabs */}
+        <div className="flex items-center gap-2 mb-6">
+          <Button
+            variant={tab === "discover" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("discover")}
+          >
+            <Sparkles className="mr-1 h-4 w-4" /> Discover
+          </Button>
+          <Button
+            variant={tab === "saved" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("saved")}
+          >
+            <Bookmark className="mr-1 h-4 w-4" /> Saved ({savedItems.length})
+          </Button>
+          <div className="flex-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAlerts(!showAlerts)}
+          >
+            <Bell className="mr-1 h-4 w-4" /> Alerts
+          </Button>
+        </div>
+
+        {/* Alerts panel */}
+        {showAlerts && (
+          <Card className="mb-6 border-primary/30">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Bell className="h-4 w-4 text-primary" /> Keyword Alerts
+              </CardTitle>
+              <CardDescription>
+                Get emailed when freebies matching your keywords appear.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <form onSubmit={handleCreateAlert} className="flex gap-2">
+                <Input
+                  placeholder="Keyword (e.g. coffee, skincare)"
+                  value={alertKeyword}
+                  onChange={(e) => setAlertKeyword(e.target.value)}
+                  className="flex-1"
+                />
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="flex-1"
+                />
+                <Button type="submit">Add alert</Button>
+              </form>
+              {alerts.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {alerts.map((a) => (
+                    <Badge key={a.keyword} variant="secondary" className="pl-3 pr-1 py-1 gap-1">
+                      🔔 {a.keyword}
+                      <button
+                        onClick={() => handleDeleteAlert(a.keyword)}
+                        aria-label={`Remove ${a.keyword}`}
+                        className="ml-1 rounded-full hover:bg-destructive/20 p-0.5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
           </Card>
         )}
 
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <div className="relative">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        {tab === "saved" ? (
+          savedItems.length === 0 ? (
+            <div className="text-center py-20">
+              <Bookmark className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <p className="text-lg font-medium mb-1">No saved freebies yet</p>
+              <p className="text-sm text-muted-foreground">
+                Click the bookmark icon on any card to save it here.
+              </p>
             </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {savedItems.map((f, i) => (
+                <FreebieCard
+                  key={`saved-${f.url}-${i}`}
+                  freebie={f}
+                  index={i}
+                  selected={selected.has(f.url)}
+                  onToggle={toggleSelect}
+                  saved={true}
+                  onSave={toggleSave}
+                  onOpen={setModalFreebie}
+                />
+              ))}
+            </div>
+          )
+        ) : loading ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="mt-4 text-sm">Scouring the internet for freebies...</p>
           </div>
-        ) : searched && freebies.length === 0 ? (
+        ) : freebies.length === 0 && searched ? (
           <div className="text-center py-20">
             <div className="text-6xl mb-4">🕳️</div>
             <p className="text-lg font-medium mb-1">Nothing free found</p>
             <p className="text-sm text-muted-foreground">Try different keywords or another category.</p>
           </div>
         ) : (
-          <>
+          <div>
+            {error && (
+              <Card className="border-destructive mb-8">
+                <CardContent className="pt-6 text-destructive text-sm">{error}</CardContent>
+              </Card>
+            )}
             {searched && freebies.length > 0 && (
               <div className="flex items-center gap-2 mb-5">
                 <BadgeCheck className="h-4 w-4 text-primary" />
@@ -301,11 +544,20 @@ export default function App() {
                   index={i}
                   selected={selected.has(f.url)}
                   onToggle={toggleSelect}
+                  saved={isSaved(f.url)}
+                  onSave={toggleSave}
+                  onOpen={setModalFreebie}
                 />
               ))}
             </div>
-          </>
+          </div>
         )}
+
+        {/* Detail modal */}
+        <FreebieModal
+          freebie={modalFreebie}
+          onClose={() => setModalFreebie(null)}
+        />
 
         {/* Floating email bar */}
         {selected.size > 0 && (
