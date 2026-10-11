@@ -236,6 +236,8 @@ def _send_email(to: str, subject: str, html: str) -> None:
 @app.post("/notify")
 def send_notification(req: NotifyRequest):
     """Email a consolidated list of selected freebies to the user."""
+    if not _valid_email(req.email):
+        raise HTTPException(400, "Invalid email address")
     if not req.freebies:
         raise HTTPException(400, "No freebies selected")
     if len(req.freebies) > 20:
@@ -357,6 +359,12 @@ def _db() -> sqlite3.Connection:
 
 from contextlib import contextmanager
 
+import re
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+def _valid_email(email: str) -> bool:
+    return bool(email and _EMAIL_RE.match(email.strip()))
+
 @contextmanager
 def _db_safe():
     """Yield a DB connection, always closing it. Raises 503 on DB failure."""
@@ -384,7 +392,7 @@ class AlertRequest(BaseModel):
 @app.post("/alerts")
 def create_alert(req: AlertRequest):
     """Create a keyword alert — emailed when matching freebies appear."""
-    if "@" not in req.email or not req.keyword.strip():
+    if not _valid_email(req.email) or not req.keyword.strip():
         raise HTTPException(400, "Valid email and keyword required")
     with _db_safe() as conn:
         conn.execute(
@@ -423,7 +431,7 @@ class SubscribeRequest(BaseModel):
 @app.post("/subscribe")
 def subscribe(req: SubscribeRequest):
     """Subscribe an email to the weekly freebie digest."""
-    if "@" not in req.email or "." not in req.email:
+    if not _valid_email(req.email):
         raise HTTPException(400, "Invalid email address")
     valid = {"samples", "trials", "giveaways", "events",
              "birthday", "digital", "food"}
@@ -516,6 +524,7 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
         alert_rows = conn.execute("SELECT email, keyword FROM alerts").fetchall()
 
     alerts_sent = 0
+    alerts_failed = 0
     # Group by email.
     from collections import defaultdict
     by_email: dict[str, list[str]] = defaultdict(list)
@@ -550,11 +559,13 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
                         f"🔔 Cheapsk8 Alert: {len(matches)} new freebie matches",
                         alert_html)
             alerts_sent += 1
-        except Exception:
-            pass
+        except HTTPException as e:
+            # Track but don't stop — other users' alerts should still send.
+            alerts_failed += 1
 
     return {"status": "done", "sent": sent, "failed": failed,
-            "freebies": len(digest_list), "alerts_sent": alerts_sent}
+            "freebies": len(digest_list), "alerts_sent": alerts_sent,
+            "alerts_failed": alerts_failed}
 
 
 @app.get("/health")
