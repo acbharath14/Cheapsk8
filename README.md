@@ -65,6 +65,23 @@ Set `VITE_API_URL` to point at a different backend (defaults to Railway).
 To deploy the frontend: import the repo in [Vercel](https://vercel.com),
 set root directory to `web`.
 
+### Testing
+
+Vitest + Testing Library. 18 tests covering the API client, `cn()` utility,
+and the location autocomplete component.
+
+```bash
+cd web
+npm test          # run once
+npm run test:watch  # watch mode
+```
+
+| File | What it tests |
+|---|---|
+| `src/test/api.test.js` | All API client functions — URL building, params, error handling |
+| `src/test/utils.test.js` | `cn()` class merging |
+| `src/test/LocationAutocomplete.test.jsx` | Debounce, suggestions, selection, fallbacks |
+
 ## API Quickstart
 
 ```bash
@@ -141,6 +158,8 @@ Requires ChatGPT Plus to create.
     │       └── utils.js        # cn() helper
     └── public/
         └── favicon.svg
+    ├── vitest.config.js        # Vitest + jsdom config
+    └── src/test/               # 18 tests (api, utils, autocomplete)
 ```
 
 ## Categories
