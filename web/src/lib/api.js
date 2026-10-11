@@ -1,71 +1,79 @@
 const API_BASE = import.meta.env.VITE_API_URL || "https://cheapsk8-production.up.railway.app";
 
+/**
+ * Wrapper that distinguishes network failures from HTTP errors,
+ * and handles malformed JSON responses gracefully.
+ */
+async function apiFetch(url, options = {}) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (err) {
+    // Network failure: DNS, CORS, offline, connection refused.
+    throw new Error(
+      "Cannot reach the Cheapsk8 API. Check your connection and try again."
+    );
+  }
+  if (!res.ok) {
+    let detail = `API error: ${res.status}`;
+    try {
+      const errBody = await res.json();
+      if (errBody.detail) detail = errBody.detail;
+    } catch {
+      // Response wasn't JSON — keep the status-based message.
+    }
+    throw new Error(detail);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new Error("API returned an unreadable response. Try again.");
+  }
+}
+
 export async function fetchFreebies({ category = "samples", query = "", location = "", limit = 9 }) {
   const params = new URLSearchParams({ category, limit: String(limit) });
   if (query) params.set("query", query);
   if (location) params.set("location", location);
-  const res = await fetch(`${API_BASE}/freebies?${params}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  return apiFetch(`${API_BASE}/freebies?${params}`);
 }
 
 export async function fetchCategories() {
-  const res = await fetch(`${API_BASE}/categories`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  return apiFetch(`${API_BASE}/categories`);
 }
 
 export async function sendNotification(email, freebies) {
-  const res = await fetch(`${API_BASE}/notify`, {
+  return apiFetch(`${API_BASE}/notify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, freebies }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `API error: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function subscribeDigest(email, categories = ["samples"]) {
-  const res = await fetch(`${API_BASE}/subscribe`, {
+  return apiFetch(`${API_BASE}/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, categories }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `API error: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function createAlert(email, keyword) {
-  const res = await fetch(`${API_BASE}/alerts`, {
+  return apiFetch(`${API_BASE}/alerts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, keyword }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `API error: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function listAlerts(email) {
-  const res = await fetch(`${API_BASE}/alerts?email=${encodeURIComponent(email)}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  return apiFetch(`${API_BASE}/alerts?email=${encodeURIComponent(email)}`);
 }
 
 export async function deleteAlert(email, keyword) {
-  const res = await fetch(`${API_BASE}/alerts`, {
+  return apiFetch(`${API_BASE}/alerts`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, keyword }),
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
 }
