@@ -76,9 +76,10 @@ function FreebieCard({ freebie, index, selected, onToggle, saved, onSave, onOpen
       </CardContent>
       <CardFooter className="pt-0">
         <Button variant="default" size="sm" className="w-full group/btn" asChild>
-          <a href={freebie.url} target="_blank" rel="noopener noreferrer">
-            Claim it free
-            <ArrowRight className="ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
+          <a href={freebie.url} target="_blank" rel="noopener noreferrer"
+             className="inline-flex items-center justify-center gap-1.5">
+            <span>Claim it free</span>
+            <ArrowRight className="h-4 w-4 shrink-0 group-hover/btn:translate-x-0.5 transition-transform" />
           </a>
         </Button>
       </CardFooter>
