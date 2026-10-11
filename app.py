@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import smtplib
+import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from email.mime.multipart import MIMEMultipart
@@ -314,6 +315,145 @@ def list_categories():
             {"id": "food", "label": "Free Food", "example": "samples, restaurant promos (needs location)"},
         ]
     }
+
+
+# --- Weekly digest: subscriber storage (SQLite) ---
+
+DB_PATH = os.environ.get("CHEAPSK8_DB", "cheapsk8.db")
+DIGEST_SECRET = os.environ.get("DIGEST_SECRET", "")  # Protects /digest trigger.
+
+
+def _db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS subscribers ("
+        "email TEXT PRIMARY KEY, categories TEXT DEFAULT 'samples', "
+        "created_at TEXT DEFAULT (datetime('now')))"
+    )
+    conn.commit()
+    return conn
+
+
+class SubscribeRequest(BaseModel):
+    email: str
+    categories: list[str] = ["samples"]
+
+
+@app.post("/subscribe")
+def subscribe(req: SubscribeRequest):
+    """Subscribe an email to the weekly freebie digest."""
+    if "@" not in req.email or "." not in req.email:
+        raise HTTPException(400, "Invalid email address")
+    valid = {"samples", "trials", "giveaways", "events",
+             "birthday", "digital", "food"}
+    cats = [c for c in req.categories if c in valid] or ["samples"]
+    conn = _db()
+    conn.execute(
+        "INSERT OR REPLACE INTO subscribers (email, categories) VALUES (?, ?)",
+        (req.email.lower().strip(), ",".join(cats)),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "subscribed", "email": req.email, "categories": cats}
+
+
+@app.post("/unsubscribe")
+def unsubscribe(req: SubscribeRequest):
+    """Remove an email from the weekly digest."""
+    conn = _db()
+    conn.execute("DELETE FROM subscribers WHERE email = ?",
+                 (req.email.lower().strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "unsubscribed", "email": req.email}
+
+
+@app.get("/subscribers/count")
+def subscriber_count():
+    """How many digest subscribers (no emails exposed)."""
+    conn = _db()
+    n = conn.execute("SELECT COUNT(*) FROM subscribers").fetchone()[0]
+    conn.close()
+    return {"count": n}
+
+
+def _build_digest_html(freebies: list[Freebie]) -> str:
+    rows = ""
+    for f in freebies:
+        rows += (
+            f'<tr><td style="padding:12px;border-bottom:1px solid #eee;">'
+            f'<a href="{f.url}" style="font-weight:bold;color:#059669;">{f.title}</a>'
+            f'<br><span style="color:#666;font-size:13px;">{f.description[:150]}</span>'
+            f'<br><span style="font-size:12px;color:#999;">{f.category} · {f.how_to_claim or "via web"}</span>'
+            f'</td></tr>'
+        )
+    return f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+    <h2 style="color:#059669;">🆓 Your Weekly Cheapsk8 Digest</h2>
+    <p>The best freebies we found this week — {len(freebies)} picks:</p>
+    <table style="width:100%;border-collapse:collapse;">{rows}</table>
+    <p style="color:#999;font-size:12px;margin-top:24px;">
+    You're getting this because you subscribed at Cheapsk8.<br>
+    <a href="https://github.com/acbharath14/Cheapsk8">Unsubscribe anytime</a>
+    </p></body></html>"""
+
+
+@app.post("/digest")
+def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
+    """Generate and email the weekly digest to all subscribers.
+
+    Called by a scheduled job (e.g. GitHub Actions cron). Protected by token.
+    """
+    if not DIGEST_SECRET or token != DIGEST_SECRET:
+        raise HTTPException(403, "Invalid token")
+
+    conn = _db()
+    subs = conn.execute("SELECT email, categories FROM subscribers").fetchall()
+    conn.close()
+    if not subs:
+        return {"status": "no_subscribers"}
+
+    # Gather top freebies across popular categories.
+    all_freebies: list[Freebie] = []
+    for cat in ("samples", "giveaways", "food", "trials"):
+        all_freebies.extend(_get_rss_freebies(cat, "", 5))
+    # Deduplicate.
+    seen, digest_list = set(), []
+    for f in all_freebies:
+        if f.url not in seen:
+            seen.add(f.url)
+            digest_list.append(f)
+    digest_list = digest_list[:15]
+    if not digest_list:
+        return {"status": "no_freebies"}
+
+    html = _build_digest_html(digest_list)
+    host = os.environ.get("SMTP_HOST", "")
+    if not host:
+        raise HTTPException(500, "Email not configured (SMTP_HOST missing)")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER", "")
+    password = os.environ.get("SMTP_PASS", "")
+    from_addr = os.environ.get("SMTP_FROM", user)
+
+    sent, failed = 0, 0
+    for email, _cats in subs:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = "🆓 Your Weekly Cheapsk8 Digest"
+            msg["From"] = from_addr
+            msg["To"] = email
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(host, port) as server:
+                server.starttls()
+                if user and password:
+                    server.login(user, password)
+                server.send_message(msg)
+            sent += 1
+        except Exception:
+            failed += 1
+
+    return {"status": "done", "sent": sent, "failed": failed,
+            "freebies": len(digest_list)}
 
 
 @app.get("/health")
