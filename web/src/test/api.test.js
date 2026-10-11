@@ -46,6 +46,18 @@ describe("fetchFreebies", () => {
   });
 });
 
+describe("network failures", () => {
+  it("throws friendly message on connection failure", async () => {
+    mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(fetchFreebies({})).rejects.toThrow("Cannot reach the Cheapsk8 API");
+  });
+
+  it("throws friendly message on malformed JSON", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => { throw new Error("bad json"); } });
+    await expect(fetchFreebies({})).rejects.toThrow("unreadable response");
+  });
+});
+
 describe("fetchCategories", () => {
   it("calls /categories", async () => {
     mockFetch.mockResolvedValue(okJson({ categories: [] }));
