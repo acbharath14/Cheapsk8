@@ -330,8 +330,59 @@ def _db() -> sqlite3.Connection:
         "email TEXT PRIMARY KEY, categories TEXT DEFAULT 'samples', "
         "created_at TEXT DEFAULT (datetime('now')))"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS alerts ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "email TEXT NOT NULL, keyword TEXT NOT NULL, "
+        "created_at TEXT DEFAULT (datetime('now')), "
+        "UNIQUE(email, keyword))"
+    )
     conn.commit()
     return conn
+
+
+class AlertRequest(BaseModel):
+    email: str
+    keyword: str
+
+
+@app.post("/alerts")
+def create_alert(req: AlertRequest):
+    """Create a keyword alert — emailed when matching freebies appear."""
+    if "@" not in req.email or not req.keyword.strip():
+        raise HTTPException(400, "Valid email and keyword required")
+    conn = _db()
+    conn.execute(
+        "INSERT OR IGNORE INTO alerts (email, keyword) VALUES (?, ?)",
+        (req.email.lower().strip(), req.keyword.strip().lower()),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "alert_created", "email": req.email,
+            "keyword": req.keyword.strip()}
+
+
+@app.delete("/alerts")
+def delete_alert(req: AlertRequest):
+    """Remove a keyword alert."""
+    conn = _db()
+    conn.execute("DELETE FROM alerts WHERE email = ? AND keyword = ?",
+                 (req.email.lower().strip(), req.keyword.strip().lower()))
+    conn.commit()
+    conn.close()
+    return {"status": "alert_deleted"}
+
+
+@app.get("/alerts")
+def list_alerts(email: str = Query(...)):
+    """List a user's keyword alerts."""
+    conn = _db()
+    rows = conn.execute(
+        "SELECT keyword, created_at FROM alerts WHERE email = ?",
+        (email.lower().strip(),)).fetchall()
+    conn.close()
+    return {"email": email,
+            "alerts": [{"keyword": r[0], "created_at": r[1]} for r in rows]}
 
 
 class SubscribeRequest(BaseModel):
@@ -452,8 +503,58 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
         except Exception:
             failed += 1
 
+    # --- Keyword alerts: match alerts against fresh freebies ---
+    conn = _db()
+    alert_rows = conn.execute("SELECT email, keyword FROM alerts").fetchall()
+    conn.close()
+
+    alerts_sent = 0
+    # Group by email.
+    from collections import defaultdict
+    by_email: dict[str, list[str]] = defaultdict(list)
+    for email, kw in alert_rows:
+        by_email[email].append(kw)
+
+    for email, keywords in by_email.items():
+        matches: list[Freebie] = []
+        for kw in keywords:
+            for f in digest_list:
+                if kw in (f.title + " " + f.description).lower() \
+                        and f.url not in {m.url for m in matches}:
+                    matches.append(f)
+        if not matches:
+            continue
+        try:
+            rows_html = ""
+            for f in matches[:10]:
+                rows_html += (
+                    f'<tr><td style="padding:12px;border-bottom:1px solid #eee;">'
+                    f'<a href="{f.url}" style="font-weight:bold;color:#059669;">{f.title}</a>'
+                    f'<br><span style="color:#666;font-size:13px;">{f.description[:150]}</span>'
+                    f'</td></tr>'
+                )
+            alert_html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+            <h2 style="color:#059669;">🔔 Cheapsk8 Alert — new matches!</h2>
+            <p>We found {len(matches)} freebies matching your keywords
+            ({", ".join(keywords)}):</p>
+            <table style="width:100%;border-collapse:collapse;">{rows_html}</table>
+            </body></html>"""
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"🔔 Cheapsk8 Alert: {len(matches)} new freebie matches"
+            msg["From"] = from_addr
+            msg["To"] = email
+            msg.attach(MIMEText(alert_html, "html"))
+            with smtplib.SMTP(host, port) as server:
+                server.starttls()
+                if user and password:
+                    server.login(user, password)
+                server.send_message(msg)
+            alerts_sent += 1
+        except Exception:
+            pass
+
     return {"status": "done", "sent": sent, "failed": failed,
-            "freebies": len(digest_list)}
+            "freebies": len(digest_list), "alerts_sent": alerts_sent}
 
 
 @app.get("/health")
