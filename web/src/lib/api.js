@@ -40,3 +40,32 @@ export async function subscribeDigest(email, categories = ["samples"]) {
   }
   return res.json();
 }
+
+export async function createAlert(email, keyword) {
+  const res = await fetch(`${API_BASE}/alerts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, keyword }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function listAlerts(email) {
+  const res = await fetch(`${API_BASE}/alerts?email=${encodeURIComponent(email)}`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteAlert(email, keyword) {
+  const res = await fetch(`${API_BASE}/alerts`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, keyword }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
