@@ -14,6 +14,7 @@ Env:  TAVILY_API_KEY (required for search)
 from __future__ import annotations
 
 import os
+import html
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
@@ -140,9 +141,9 @@ def _fetch_rss(feed_url: str, source: str, default_category: str,
 
     items = []
     for item in root.iter("item"):
-        title = (item.findtext("title") or "Untitled").strip()
+        title = html.unescape((item.findtext("title") or "Untitled").strip())
         link = (item.findtext("link") or "").strip()
-        desc = (item.findtext("description") or "").strip()
+        desc = html.unescape((item.findtext("description") or "").strip())
         # Strip HTML tags from description.
         import re
         desc = re.sub(r"<[^>]+>", "", desc).strip()
@@ -287,8 +288,8 @@ def get_freebies(
                     search_query = _build_query(category, query, location)
                     for r in _tavily_search(search_query, max_results=remaining):
                         freebies.append(Freebie(
-                            title=r.get("title", "Untitled")[:120],
-                            description=(r.get("content", "") or "")[:300].strip(),
+                            title=html.unescape(r.get("title", "Untitled"))[:120],
+                            description=html.unescape((r.get("content", "") or ""))[:300].strip(),
                             url=r.get("url", ""),
                             category=category,
                             status="unverified",
