@@ -1,0 +1,16 @@
+name: Weekly Freebie Digest
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'  # 9am EST / 10am EDT every Monday
+  workflow_dispatch:       # Manual trigger button
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger digest
+        env:
+          DIGEST_SECRET: ${{ secrets.DIGEST_SECRET }}
+        run: |
+          curl --fail --silent --show-error --request POST "https://cheapsk8-production.up.railway.app/digest?token=${DIGEST_SECRET}"

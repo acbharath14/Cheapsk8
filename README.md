@@ -57,10 +57,11 @@ React + Vite + Tailwind + shadcn-style components. Dark mode by default.
 ```bash
 cd web
 npm install
-npm run dev        # http://localhost:5173
+VITE_API_URL=http://localhost:8000 npm run dev  # http://localhost:5173
 ```
 
-Set `VITE_API_URL` to point at a different backend (defaults to Railway).
+The command above connects the UI to your local API. `VITE_API_URL` can point
+to another backend; if omitted, the UI uses the hosted API.
 
 To deploy the frontend: import the repo in [Vercel](https://vercel.com),
 set root directory to `web`.
@@ -84,10 +85,42 @@ npm run test:watch  # watch mode
 
 ## API Quickstart
 
+Prerequisites: Python 3.10+ and Node.js 20.19+ or 22.12+ (for the web UI).
+You can run the RSS-backed API without API keys; set a Tavily key to enable live
+web search, and Resend/Digest credentials only for email and digest features.
+
+Clone the repository and start the API:
+
 ```bash
+git clone https://github.com/acbharath14/Cheapsk8.git
+cd Cheapsk8
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-TAVILY_API_KEY=your-key uvicorn app:app --reload
+uvicorn app:app --reload
 ```
+
+From the repository root in a second terminal, start the web UI and point it
+at the local API:
+
+```bash
+cd web
+npm install
+VITE_API_URL=http://localhost:8000 npm run dev
+```
+
+Open `http://localhost:5173`. On Windows PowerShell, activate the virtual
+environment with `.venv\Scripts\Activate.ps1`; set environment variables with
+`$env:NAME="value"` before starting the relevant command.
+
+To enable Tavily search locally, set `TAVILY_API_KEY` in the API terminal
+before starting Uvicorn. Email notifications and keyword-alert/digest emails
+also require `RESEND_API_KEY`; scheduled digests additionally require
+`DIGEST_SECRET` configured as a GitHub Actions repository secret. Never commit
+real API keys, digest tokens, or subscriber database files.
+
+With the API running, these endpoints can be tried directly:
 
 ```bash
 curl "http://localhost:8000/freebies?category=samples&query=coffee"
@@ -116,8 +149,8 @@ curl "http://localhost:8000/health"
 
 | Variable | Required | What |
 |---|---|---|
-| `TAVILY_API_KEY` | Yes (for search) | [tavily.com](https://tavily.com) API key |
-| `RESEND_API_KEY` | Yes (for email) | [resend.com](https://resend.com) API key |
+| `TAVILY_API_KEY` | No (RSS works without it) | [tavily.com](https://tavily.com) API key for live web search |
+| `RESEND_API_KEY` | No (email features only) | [resend.com](https://resend.com) API key |
 | `RESEND_FROM` | No | From address (defaults to Resend onboarding) |
 | `DIGEST_SECRET` | Yes (for digest) | Random string protecting `/digest` |
 | `CHEAPSK8_DB` | No | SQLite path (defaults to `cheapsk8.db`) |
@@ -127,8 +160,10 @@ curl "http://localhost:8000/health"
 
 ## Scheduled Digest (GitHub Actions)
 
-`.github/workflows/weekly-digest.yml` — cron Mondays 9am ET + manual trigger.
-Requires `DIGEST_SECRET` in repo secrets (Settings → Secrets → Actions).
+To enable scheduled digests, include
+`.github/workflows/weekly-digest.yml` in the repository's default branch. It
+runs Mondays at 14:00 UTC (9am EST / 10am EDT) and can also be triggered
+manually. Add `DIGEST_SECRET` to repo secrets (Settings → Secrets → Actions).
 
 ## GPT Setup (GPT Store)
 
