@@ -39,7 +39,6 @@ app.add_middleware(
 
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
-TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
 
 # Category → search query templates.
 CATEGORY_QUERIES = {
