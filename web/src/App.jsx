@@ -6,6 +6,7 @@ import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
 import { fetchFreebies, fetchCategories, sendNotification, subscribeDigest, createAlert, listAlerts, deleteAlert } from "./lib/api";
 import { cn } from "./lib/utils";
+import LocationAutocomplete from "./components/LocationAutocomplete";
 
 const CATEGORY_META = {
   samples:   { icon: "🎁", label: "Samples",   blurb: "Try before you buy" },
@@ -364,15 +365,11 @@ export default function App() {
                   className="w-full h-12 bg-transparent pl-11 pr-4 text-[15px] placeholder:text-muted-foreground focus:outline-none"
                 />
               </div>
-              <div className="relative sm:w-44 sm:border-l border-border">
-                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  placeholder="Location"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="w-full h-12 bg-transparent pl-11 pr-4 text-[15px] placeholder:text-muted-foreground focus:outline-none"
-                />
-              </div>
+              <LocationAutocomplete
+                value={location}
+                onChange={setLocation}
+                className="sm:w-56 sm:border-l border-border"
+              />
               <Button type="submit" disabled={loading} size="lg" className="h-12 px-8 text-[15px] font-semibold shrink-0">
                 {loading ? <Loader2 className="animate-spin" /> : "Hunt 🆓"}
               </Button>
