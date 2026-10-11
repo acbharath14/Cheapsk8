@@ -206,16 +206,27 @@ def _send_email(to: str, subject: str, html: str) -> None:
     """Send an HTML email via Resend API."""
     if not RESEND_API_KEY:
         raise HTTPException(500, "Email not configured (RESEND_API_KEY missing)")
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"from": RESEND_FROM, "to": [to], "subject": subject,
-              "html": html},
-        timeout=20,
-    )
+    try:
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"from": RESEND_FROM, "to": [to], "subject": subject,
+                  "html": html},
+            timeout=20,
+        )
+    except requests.Timeout:
+        raise HTTPException(504, "Email service timed out")
+    except requests.ConnectionError:
+        raise HTTPException(502, "Could not reach email service")
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Email request failed: {e}")
+    if resp.status_code == 401:
+        raise HTTPException(500, "Email API key invalid")
+    if resp.status_code == 422:
+        raise HTTPException(400, f"Email rejected: {resp.text[:200]}")
     if resp.status_code >= 400:
         raise HTTPException(502,
                             f"Email send failed: {resp.text[:200]}")
@@ -267,16 +278,24 @@ def get_freebies(
     # 2. Tavily live search (fills remaining slots).
     if sources in ("all", "search"):
         remaining = limit - len(freebies)
-        if remaining > 0 and TAVILY_API_KEY:
-            search_query = _build_query(category, query, location)
-            for r in _tavily_search(search_query, max_results=remaining):
-                freebies.append(Freebie(
-                    title=r.get("title", "Untitled")[:120],
-                    description=(r.get("content", "") or "")[:300].strip(),
-                    url=r.get("url", ""),
-                    category=category,
-                    status="unverified",
-                ))
+        if remaining > 0:
+            if not TAVILY_API_KEY:
+                # No key — RSS results stand alone.
+                pass
+            else:
+                try:
+                    search_query = _build_query(category, query, location)
+                    for r in _tavily_search(search_query, max_results=remaining):
+                        freebies.append(Freebie(
+                            title=r.get("title", "Untitled")[:120],
+                            description=(r.get("content", "") or "")[:300].strip(),
+                            url=r.get("url", ""),
+                            category=category,
+                            status="unverified",
+                        ))
+                except HTTPException:
+                    # Search failed — RSS results still returned.
+                    pass
 
     # Deduplicate by URL across sources.
     seen = set()
@@ -335,6 +354,27 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
+from contextlib import contextmanager
+
+@contextmanager
+def _db_safe():
+    """Yield a DB connection, always closing it. Raises 503 on DB failure."""
+    conn = None
+    try:
+        conn = _db()
+        yield conn
+        conn.commit()
+    except sqlite3.Error as e:
+        if conn:
+            try: conn.rollback()
+            except Exception: pass
+        raise HTTPException(503, f"Database unavailable: {e}")
+    finally:
+        if conn:
+            try: conn.close()
+            except Exception: pass
+
+
 class AlertRequest(BaseModel):
     email: str
     keyword: str
@@ -345,13 +385,11 @@ def create_alert(req: AlertRequest):
     """Create a keyword alert — emailed when matching freebies appear."""
     if "@" not in req.email or not req.keyword.strip():
         raise HTTPException(400, "Valid email and keyword required")
-    conn = _db()
-    conn.execute(
-        "INSERT OR IGNORE INTO alerts (email, keyword) VALUES (?, ?)",
-        (req.email.lower().strip(), req.keyword.strip().lower()),
-    )
-    conn.commit()
-    conn.close()
+    with _db_safe() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO alerts (email, keyword) VALUES (?, ?)",
+            (req.email.lower().strip(), req.keyword.strip().lower()),
+        )
     return {"status": "alert_created", "email": req.email,
             "keyword": req.keyword.strip()}
 
@@ -359,22 +397,19 @@ def create_alert(req: AlertRequest):
 @app.delete("/alerts")
 def delete_alert(req: AlertRequest):
     """Remove a keyword alert."""
-    conn = _db()
-    conn.execute("DELETE FROM alerts WHERE email = ? AND keyword = ?",
-                 (req.email.lower().strip(), req.keyword.strip().lower()))
-    conn.commit()
-    conn.close()
+    with _db_safe() as conn:
+        conn.execute("DELETE FROM alerts WHERE email = ? AND keyword = ?",
+                     (req.email.lower().strip(), req.keyword.strip().lower()))
     return {"status": "alert_deleted"}
 
 
 @app.get("/alerts")
 def list_alerts(email: str = Query(...)):
     """List a user's keyword alerts."""
-    conn = _db()
-    rows = conn.execute(
-        "SELECT keyword, created_at FROM alerts WHERE email = ?",
-        (email.lower().strip(),)).fetchall()
-    conn.close()
+    with _db_safe() as conn:
+        rows = conn.execute(
+            "SELECT keyword, created_at FROM alerts WHERE email = ?",
+            (email.lower().strip(),)).fetchall()
     return {"email": email,
             "alerts": [{"keyword": r[0], "created_at": r[1]} for r in rows]}
 
@@ -392,33 +427,28 @@ def subscribe(req: SubscribeRequest):
     valid = {"samples", "trials", "giveaways", "events",
              "birthday", "digital", "food"}
     cats = [c for c in req.categories if c in valid] or ["samples"]
-    conn = _db()
-    conn.execute(
-        "INSERT OR REPLACE INTO subscribers (email, categories) VALUES (?, ?)",
-        (req.email.lower().strip(), ",".join(cats)),
-    )
-    conn.commit()
-    conn.close()
+    with _db_safe() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO subscribers (email, categories) VALUES (?, ?)",
+            (req.email.lower().strip(), ",".join(cats)),
+        )
     return {"status": "subscribed", "email": req.email, "categories": cats}
 
 
 @app.post("/unsubscribe")
 def unsubscribe(req: SubscribeRequest):
     """Remove an email from the weekly digest."""
-    conn = _db()
-    conn.execute("DELETE FROM subscribers WHERE email = ?",
-                 (req.email.lower().strip(),))
-    conn.commit()
-    conn.close()
+    with _db_safe() as conn:
+        conn.execute("DELETE FROM subscribers WHERE email = ?",
+                     (req.email.lower().strip(),))
     return {"status": "unsubscribed", "email": req.email}
 
 
 @app.get("/subscribers/count")
 def subscriber_count():
     """How many digest subscribers (no emails exposed)."""
-    conn = _db()
-    n = conn.execute("SELECT COUNT(*) FROM subscribers").fetchone()[0]
-    conn.close()
+    with _db_safe() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM subscribers").fetchone()[0]
     return {"count": n}
 
 
@@ -451,9 +481,8 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
     if not DIGEST_SECRET or token != DIGEST_SECRET:
         raise HTTPException(403, "Invalid token")
 
-    conn = _db()
-    subs = conn.execute("SELECT email, categories FROM subscribers").fetchall()
-    conn.close()
+    with _db_safe() as conn:
+        subs = conn.execute("SELECT email, categories FROM subscribers").fetchall()
     if not subs:
         return {"status": "no_subscribers"}
 
@@ -482,9 +511,8 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
             failed += 1
 
     # --- Keyword alerts: match alerts against fresh freebies ---
-    conn = _db()
-    alert_rows = conn.execute("SELECT email, keyword FROM alerts").fetchall()
-    conn.close()
+    with _db_safe() as conn:
+        alert_rows = conn.execute("SELECT email, keyword FROM alerts").fetchall()
 
     alerts_sent = 0
     # Group by email.
