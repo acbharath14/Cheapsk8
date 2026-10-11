@@ -27,3 +27,16 @@ export async function sendNotification(email, freebies) {
   }
   return res.json();
 }
+
+export async function subscribeDigest(email, categories = ["samples"]) {
+  const res = await fetch(`${API_BASE}/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, categories }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `API error: ${res.status}`);
+  }
+  return res.json();
+}
