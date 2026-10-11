@@ -72,12 +72,13 @@ export default function App() {
     fetchCategories().then((d) => setCategories(d.categories)).catch(() => {});
   }, []);
 
-  const search = async (e) => {
+  const search = async (e, categoryOverride) => {
     e?.preventDefault();
+    const activeCategory = categoryOverride || category;
     setLoading(true);
     setError("");
     try {
-      const data = await fetchFreebies({ category, query, location });
+      const data = await fetchFreebies({ category: activeCategory, query, location });
       setFreebies(data.freebies);
       setSearched(true);
     } catch (err) {
@@ -85,6 +86,11 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCategoryClick = (id) => {
+    setCategory(id);
+    search(null, id);
   };
 
   useEffect(() => { search(); }, []);
@@ -147,7 +153,7 @@ export default function App() {
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => { setCategory(c.id); }}
+                  onClick={() => handleCategoryClick(c.id)}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border-2 transition-all",
                     active
