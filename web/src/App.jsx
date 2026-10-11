@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, ExternalLink, Gift, Loader2, Sparkles, ArrowRight, BadgeCheck, Mail, Check, Bookmark, Bell, BellOff, X, ThumbsUp } from "lucide-react";
+import { Search, ExternalLink, Loader2, Sparkles, ArrowRight, BadgeCheck, Mail, Check, Bookmark, Bell, X, ThumbsUp } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
@@ -182,7 +182,10 @@ function FreebieModal({ freebie, onClose, onClaim }) {
 
           {freebie.url && (
             <p className="text-xs text-muted-foreground break-all">
-              Source: <span className="underline">{new URL(freebie.url).hostname}</span>
+              Source: <span className="underline">{(() => {
+                try { return new URL(freebie.url).hostname; }
+                catch { return freebie.url.slice(0, 40); }
+              })()}</span>
             </p>
           )}
 
