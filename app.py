@@ -6,18 +6,17 @@ A FastAPI backend for the Cheapsk8 GPT. Aggregates freebies from:
 
 Run:  uvicorn app:app --host 0.0.0.0 --port 8000
 Env:  TAVILY_API_KEY (required for search)
-      SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM (for /notify)
+      RESEND_API_KEY (required for /notify, /digest)
+      RESEND_FROM (optional, defaults to Resend onboarding address)
+      DIGEST_SECRET (required for /digest trigger)
 """
 
 from __future__ import annotations
 
 import os
-import smtplib
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Literal
 
 import requests
@@ -200,48 +199,27 @@ class NotifyRequest(BaseModel):
     subject: str = "Your Cheapsk8 freebies 🆓"
 
 
-def _send_email(to: str, subject: str, freebies: list[Freebie]) -> None:
-    """Send consolidated freebie list via SMTP (env-configured)."""
-    host = os.environ.get("SMTP_HOST", "")
-    if not host:
-        raise HTTPException(500, "Email not configured (SMTP_HOST missing)")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM", "Cheapsk8 <onboarding@resend.dev>")
 
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ.get("SMTP_USER", "")
-    password = os.environ.get("SMTP_PASS", "")
-    from_addr = os.environ.get("SMTP_FROM", user)
 
-    # Build HTML email.
-    rows = ""
-    for f in freebies:
-        rows += (
-            f'<tr><td style="padding:12px;border-bottom:1px solid #eee;">'
-            f'<a href="{f.url}" style="font-weight:bold;color:#059669;">{f.title}</a>'
-            f'<br><span style="color:#666;font-size:13px;">{f.description[:150]}</span>'
-            f'<br><span style="font-size:12px;color:#999;">{f.category} · {f.how_to_claim or "via web"}</span>'
-            f'</td></tr>'
-        )
-
-    html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-    <h2 style="color:#059669;">🆓 Your Cheapsk8 Freebies</h2>
-    <p>Here are the {len(freebies)} freebies you picked:</p>
-    <table style="width:100%;border-collapse:collapse;">{rows}</table>
-    <p style="color:#999;font-size:12px;margin-top:24px;">
-    Happy hunting! — Cheapsk8<br>
-    <a href="https://github.com/acbharath14/Cheapsk8">github.com/acbharath14/Cheapsk8</a>
-    </p></body></html>"""
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = to
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP(host, port) as server:
-        server.starttls()
-        if user and password:
-            server.login(user, password)
-        server.send_message(msg)
+def _send_email(to: str, subject: str, html: str) -> None:
+    """Send an HTML email via Resend API."""
+    if not RESEND_API_KEY:
+        raise HTTPException(500, "Email not configured (RESEND_API_KEY missing)")
+    resp = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={"from": RESEND_FROM, "to": [to], "subject": subject,
+              "html": html},
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(502,
+                            f"Email send failed: {resp.text[:200]}")
 
 
 @app.post("/notify")
@@ -251,7 +229,24 @@ def send_notification(req: NotifyRequest):
         raise HTTPException(400, "No freebies selected")
     if len(req.freebies) > 20:
         raise HTTPException(400, "Too many freebies (max 20)")
-    _send_email(req.email, req.subject, req.freebies)
+    rows = ""
+    for f in req.freebies:
+        rows += (
+            f'<tr><td style="padding:12px;border-bottom:1px solid #eee;">'
+            f'<a href="{f.url}" style="font-weight:bold;color:#059669;">{f.title}</a>'
+            f'<br><span style="color:#666;font-size:13px;">{f.description[:150]}</span>'
+            f'<br><span style="font-size:12px;color:#999;">{f.category} · {f.how_to_claim or "via web"}</span>'
+            f'</td></tr>'
+        )
+    html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+    <h2 style="color:#059669;">🆓 Your Cheapsk8 Freebies</h2>
+    <p>Here are the {len(req.freebies)} freebies you picked:</p>
+    <table style="width:100%;border-collapse:collapse;">{rows}</table>
+    <p style="color:#999;font-size:12px;margin-top:24px;">
+    Happy hunting! — Cheapsk8<br>
+    <a href="https://github.com/acbharath14/Cheapsk8">github.com/acbharath14/Cheapsk8</a>
+    </p></body></html>"""
+    _send_email(req.email, req.subject, html)
     return {"status": "sent", "to": req.email, "count": len(req.freebies)}
 
 
@@ -478,27 +473,11 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
         return {"status": "no_freebies"}
 
     html = _build_digest_html(digest_list)
-    host = os.environ.get("SMTP_HOST", "")
-    if not host:
-        raise HTTPException(500, "Email not configured (SMTP_HOST missing)")
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ.get("SMTP_USER", "")
-    password = os.environ.get("SMTP_PASS", "")
-    from_addr = os.environ.get("SMTP_FROM", user)
 
     sent, failed = 0, 0
     for email, _cats in subs:
         try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = "🆓 Your Weekly Cheapsk8 Digest"
-            msg["From"] = from_addr
-            msg["To"] = email
-            msg.attach(MIMEText(html, "html"))
-            with smtplib.SMTP(host, port) as server:
-                server.starttls()
-                if user and password:
-                    server.login(user, password)
-                server.send_message(msg)
+            _send_email(email, "🆓 Your Weekly Cheapsk8 Digest", html)
             sent += 1
         except Exception:
             failed += 1
@@ -539,16 +518,9 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
             ({", ".join(keywords)}):</p>
             <table style="width:100%;border-collapse:collapse;">{rows_html}</table>
             </body></html>"""
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"🔔 Cheapsk8 Alert: {len(matches)} new freebie matches"
-            msg["From"] = from_addr
-            msg["To"] = email
-            msg.attach(MIMEText(alert_html, "html"))
-            with smtplib.SMTP(host, port) as server:
-                server.starttls()
-                if user and password:
-                    server.login(user, password)
-                server.send_message(msg)
+            _send_email(email,
+                        f"🔔 Cheapsk8 Alert: {len(matches)} new freebie matches",
+                        alert_html)
             alerts_sent += 1
         except Exception:
             pass
