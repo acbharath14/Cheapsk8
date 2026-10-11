@@ -4,7 +4,7 @@ import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
-import { fetchFreebies, fetchCategories, sendNotification } from "./lib/api";
+import { fetchFreebies, fetchCategories, sendNotification, subscribeDigest } from "./lib/api";
 import { cn } from "./lib/utils";
 
 const CATEGORY_META = {
@@ -68,6 +68,48 @@ function FreebieCard({ freebie, index, selected, onToggle }) {
         </Button>
       </CardFooter>
     </Card>
+  );
+}
+
+function DigestForm() {
+  const [email, setEmail] = useState(() => localStorage.getItem("cheapsk8-email") || "");
+  const [status, setStatus] = useState(""); // "", "sending", "done", "error"
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!email) return;
+    setStatus("sending");
+    try {
+      await subscribeDigest(email);
+      localStorage.setItem("cheapsk8-email", email);
+      setStatus("done");
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  if (status === "done") {
+    return (
+      <p className="text-sm text-primary flex items-center justify-center gap-1 py-2">
+        <BadgeCheck className="h-4 w-4" /> You're in! See you every week. 🆓
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="flex gap-2">
+      <Input
+        type="email"
+        placeholder="you@example.com"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="flex-1"
+        required
+      />
+      <Button type="submit" disabled={status === "sending"}>
+        {status === "sending" ? <Loader2 className="animate-spin" /> : "Subscribe"}
+      </Button>
+    </form>
   );
 }
 
@@ -315,12 +357,24 @@ export default function App() {
       </main>
 
       <footer className="border-t">
-        <div className="max-w-6xl mx-auto px-4 py-8 text-center">
-          <p className="font-bold text-lg mb-1">Cheap<span className="text-primary">sk8</span> 🆓</p>
-          <p className="text-sm text-muted-foreground">
-            <a href="https://github.com/acbharath14/Cheapsk8" className="underline hover:text-foreground">Open source</a>
-            {" · "}Powered by Tavily search
-          </p>
+        <div className="max-w-6xl mx-auto px-4 py-10">
+          {/* Weekly digest signup */}
+          <div className="max-w-md mx-auto text-center mb-8">
+            <h3 className="font-bold text-lg mb-1 flex items-center justify-center gap-2">
+              <Mail className="h-5 w-5 text-primary" /> Weekly Freebie Digest
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Get the best freebies in your inbox every week. No spam, unsubscribe anytime.
+            </p>
+            <DigestForm />
+          </div>
+          <div className="text-center border-t border-border pt-6">
+            <p className="font-bold text-lg mb-1">Cheap<span className="text-primary">sk8</span> 🆓</p>
+            <p className="text-sm text-muted-foreground">
+              <a href="https://github.com/acbharath14/Cheapsk8" className="underline hover:text-foreground">Open source</a>
+              {" · "}Powered by Tavily search + RSS feeds
+            </p>
+          </div>
         </div>
       </footer>
     </div>
