@@ -4,6 +4,8 @@ Your freebie hunter. Finds free samples, trials, giveaways, events, birthday
 perks, and digital goods across the internet — then emails you the good ones.
 
 **Live:** https://cheapsk8-production.up.railway.app
+<img width="1078" height="1082" alt="Screenshot 2026-10-11 at 10 43 08 PM" src="https://github.com/user-attachments/assets/72f403a7-92e5-4bd2-a460-0fb30209a277" />
+
 
 ## Features
 
