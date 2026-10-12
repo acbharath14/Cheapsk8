@@ -340,6 +340,9 @@ DIGEST_SECRET = os.environ.get("DIGEST_SECRET", "")  # Protects /digest trigger.
 
 
 def _db() -> sqlite3.Connection:
+    parent = os.path.dirname(DB_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS subscribers ("
