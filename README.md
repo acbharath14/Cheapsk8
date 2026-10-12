@@ -5,8 +5,6 @@ perks, and digital goods across the internet — then emails you the good ones.
 
 **Live:** https://cheapsk8-production.up.railway.app
 
-![Cheapsk8 landing page](docs/screenshot.jpg)
-
 ## Features
 
 ### 🔍 Freebie Search
