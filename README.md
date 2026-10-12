@@ -3,7 +3,9 @@
 Your freebie hunter. Finds free samples, trials, giveaways, events, birthday
 perks, and digital goods across the internet — then emails you the good ones.
 
-**Live API:** `https://cheapsk8-production.up.railway.app`
+**Live:** https://cheapsk8-production.up.railway.app
+
+![Cheapsk8 landing page](docs/screenshot.jpg)
 
 ## Features
 
