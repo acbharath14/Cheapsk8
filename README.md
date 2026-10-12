@@ -5,6 +5,7 @@ perks, and digital goods across the internet — then emails you the good ones.
 
 **Live:** https://cheapsk8-production.up.railway.app
 <img width="1078" height="1082" alt="Screenshot 2026-10-11 at 10 43 08 PM" src="https://github.com/user-attachments/assets/72f403a7-92e5-4bd2-a460-0fb30209a277" />
+<img width="1074" height="1075" alt="Screenshot 2026-10-11 at 10 50 41 PM 1" src="https://github.com/user-attachments/assets/5b2c1046-ff2c-4b0e-ba2d-4cb97f221314" />
 
 
 ## Features
