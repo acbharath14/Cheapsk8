@@ -574,3 +574,15 @@ def trigger_digest(token: str = Query("", description="DIGEST_SECRET")):
 @app.get("/health")
 def health():
     return {"status": "ok", "tavily_configured": bool(TAVILY_API_KEY)}
+
+
+# --- Serve frontend SPA ---
+# Mounts web/dist (built via `npm run build`) so the Railway URL serves the
+# GUI. API routes take precedence (mounted after all routes). Skipped when
+# dist/ doesn't exist (e.g. local backend-only dev).
+
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+_DIST = os.path.join(os.path.dirname(__file__), "web", "dist")
+if os.path.isdir(_DIST):
+    app.mount("/", _StaticFiles(directory=_DIST, html=True), name="frontend")
